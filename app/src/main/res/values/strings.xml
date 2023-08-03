@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">BLE Scanner</string>
+    <string name="ble_scanner">BLE Scanner</string>
+</resources>
