@@ -60,9 +60,9 @@ public class MainActivity extends AppCompatActivity {
     };
     private final Timer timer = new Timer();
     private TimerTask scanTask;
-    private LocalDate currentDate = null;
-    private File file = null;
-    private FileOutputStream fos = null;
+    private LocalDate currentDate;
+    private File file;
+    private FileOutputStream fos;
 
     /* -------------------------------------------------- */
     private String bytesToHexString(byte[] bytes) {
@@ -86,14 +86,14 @@ public class MainActivity extends AppCompatActivity {
                 try {
                     fos.close(); /* ファイルを閉じる */
                 } catch (IOException e) {
-                    throw new RuntimeException(e);
+                    e.printStackTrace();
                 }
             }
             currentDate = date;
             String fileName = "BLE_Log_" + date.getYear() + "_" + date.getMonthValue() + "_" + date.getDayOfMonth() + ".csv";
 
             /* 新しいファイルを作成 */
-            File path = getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS);
+            File path = getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS);
             file = new File(path, fileName);
             try {
                 fos = new FileOutputStream(file, true);
@@ -105,7 +105,7 @@ public class MainActivity extends AppCompatActivity {
         try {
             fos.write((scanLog + "\n").getBytes()); /* 引数の文字列を、改行コードと共に書き込み */
         } catch (IOException e) {
-            throw new RuntimeException(e);
+            e.printStackTrace();
         }
     }
 
@@ -229,7 +229,7 @@ public class MainActivity extends AppCompatActivity {
             try {
                 fos.close();
             } catch (IOException e) {
-                throw new RuntimeException(e);
+                e.printStackTrace();
             }
         }
 
@@ -246,7 +246,7 @@ public class MainActivity extends AppCompatActivity {
         try {
             fos.close();
         } catch (IOException e) {
-            throw new RuntimeException(e);
+            e.printStackTrace();
         }
     }
 }
