@@ -1,5 +1,9 @@
 package com.example.blescanner;
 
+import android.app.Notification;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
+import android.app.Service;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothManager;
 import android.bluetooth.le.BluetoothLeScanner;
@@ -9,14 +13,13 @@ import android.bluetooth.le.ScanRecord;
 import android.bluetooth.le.ScanResult;
 import android.bluetooth.le.ScanSettings;
 import android.content.Context;
+import android.content.Intent;
 import android.os.Environment;
+import android.os.IBinder;
 import android.util.Log;
 
-import androidx.annotation.NonNull;
-import androidx.work.OneTimeWorkRequest;
-import androidx.work.WorkManager;
-import androidx.work.Worker;
-import androidx.work.WorkerParameters;
+import androidx.annotation.Nullable;
+import androidx.core.app.NotificationCompat;
 
 import java.io.File;
 import java.io.FileOutputStream;
@@ -26,10 +29,10 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Timer;
 import java.util.TimerTask;
-import java.util.concurrent.TimeUnit;
 
-public class ScanWorker extends Worker {
-    // 変数の定義
+public class ScanService extends Service {
+    private Timer timer;
+    private TimerTask timerTask;
     private BluetoothLeScanner bluetoothLeScanner;
     private LocalDate currentDate;
     private File file;
@@ -55,31 +58,62 @@ public class ScanWorker extends Worker {
     };
 
     /* -------------------------------------------------- */
-    public ScanWorker(@NonNull Context context, @NonNull WorkerParameters workerParameters) {
-        super(context, workerParameters);
-    }
-
-    /* -------------------------------------------------- */
-    @NonNull
     @Override
-    public Result doWork() {
-        startScan();
-        Timer timer = new Timer();
-        timer.schedule(new TimerTask() {
+    public void onCreate() {
+        super.onCreate();
+
+        // 通知チャネルの作成と管理
+        NotificationManager notificationManager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+        String name = "BLE Scanner";
+        String channelId = "ble_scanner_channel";
+        String description = "Notifications for BLE device scanning";
+
+        if (notificationManager.getNotificationChannel(channelId) == null) {
+            NotificationChannel notificationChannel = new NotificationChannel(channelId, name, NotificationManager.IMPORTANCE_HIGH);
+            notificationChannel.setDescription(description);
+            notificationManager.createNotificationChannel(notificationChannel);
+        }
+
+        // 通知の作成
+        Notification notification = new NotificationCompat.Builder(this, channelId)
+                .setContentTitle("BLE Scan Service")
+                .setContentText("Scanning for BLE devices...")
+                .setSmallIcon(R.drawable.ic_launcher_foreground)
+                .build();
+
+        startForeground(1, notification); // フォアグラウンド処理の開始
+
+        timer = new Timer();
+        timerTask = new TimerTask() {
             @Override
             public void run() {
                 stopScan();
-                timer.cancel();
+                startScan();
             }
-        }, 29990);
+        };
+        timer.scheduleAtFixedRate(timerTask, 0, 30 * 1000); // 30秒毎に実行
+    }
 
-        // 30秒毎の定期実行
-        OneTimeWorkRequest scanRequest = new OneTimeWorkRequest.Builder(ScanWorker.class)
-                .setInitialDelay(30, TimeUnit.SECONDS)
-                .build();
-        WorkManager.getInstance(getApplicationContext()).enqueue(scanRequest);
+    /* -------------------------------------------------- */
+    @Override
+    public int onStartCommand(Intent intent, int flags, int startId) {
+        return START_STICKY;
+    }
 
-        return Result.success();
+    /* -------------------------------------------------- */
+    @Override
+    public void onDestroy() {
+        super.onDestroy();
+        stopScan();
+        timer.cancel();
+        timerTask.cancel();
+    }
+
+    /* -------------------------------------------------- */
+    @Nullable
+    @Override
+    public IBinder onBind(Intent intent) {
+        return null;
     }
 
     /* -------------------------------------------------- */
@@ -111,15 +145,12 @@ public class ScanWorker extends Worker {
             // 新しいファイルを作成
             File path = getApplicationContext().getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS);
             file = new File(path, fileName);
-            try {
-                fileOutputStream = new FileOutputStream(file, true);
-            } catch (IOException e) {
-                e.printStackTrace();
-            }
         }
         // ファイルへの書き込み
         try {
+            fileOutputStream = new FileOutputStream(file, true);
             fileOutputStream.write((scanLog + "\n").getBytes()); // 引数の文字列を、改行コードと共に書き込み
+            fileOutputStream.close(); // ファイルを閉じる
         } catch (IOException e) {
             e.printStackTrace();
         }
@@ -127,14 +158,6 @@ public class ScanWorker extends Worker {
 
     /* -------------------------------------------------- */
     private void startScan() {
-        if (file != null) {
-            try {
-                fileOutputStream = new FileOutputStream(file, true);
-            } catch (IOException e) {
-                e.printStackTrace();
-            }
-        }
-
         BluetoothManager bluetoothManager = (BluetoothManager) getApplicationContext().getSystemService(Context.BLUETOOTH_SERVICE);
         BluetoothAdapter bluetoothAdapter = bluetoothManager.getAdapter();
         bluetoothLeScanner = bluetoothAdapter.getBluetoothLeScanner();
@@ -143,7 +166,7 @@ public class ScanWorker extends Worker {
 
         try {
             bluetoothLeScanner.startScan(filters, settings, scanCallback); // BLE スキャンを開始
-            Log.d("ScanWorker", "Start Scan OK");
+            Log.d("ScanService", "Start Scan OK");
         } catch (SecurityException e) {
             e.printStackTrace();
         }
@@ -151,17 +174,11 @@ public class ScanWorker extends Worker {
 
     /* -------------------------------------------------- */
     private void stopScan() {
-        try {
-            bluetoothLeScanner.stopScan(scanCallback);
-            Log.d("ScanWorker", "Stop Scan OK");
-        } catch (SecurityException e) {
-            e.printStackTrace();
-        }
-
-        if (fileOutputStream != null) {
+        if (bluetoothLeScanner != null) {
             try {
-                fileOutputStream.close();
-            } catch (IOException e) {
+                bluetoothLeScanner.stopScan(scanCallback);
+                Log.d("ScanService", "Stop Scan OK");
+            } catch (SecurityException e) {
                 e.printStackTrace();
             }
         }

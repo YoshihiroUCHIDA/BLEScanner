@@ -6,8 +6,6 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.appcompat.widget.SwitchCompat;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
-import androidx.work.OneTimeWorkRequest;
-import androidx.work.WorkManager;
 
 import android.Manifest;
 import android.bluetooth.BluetoothAdapter;
@@ -25,6 +23,9 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 public class MainActivity extends AppCompatActivity {
+    private Intent bleScanServiceIntent;
+    private boolean isSwitchOn = false;
+
     // パーミッションの確認
     private void checkAndRequestPermissions() {
         List<String> permissions = new ArrayList<>(); // パーミッションのリストを作成
@@ -69,23 +70,34 @@ public class MainActivity extends AppCompatActivity {
 
     /* -------------------------------------------------- */
     @Override
-    protected void onCreate(Bundle savedInstanceState) {
+    public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON); // 画面はオンのまま
 
+        bleScanServiceIntent = new Intent(this, ScanService.class);
+
         // スイッチの処理
         SwitchCompat switchCompat = findViewById(R.id.switchCompat);
         switchCompat.setOnCheckedChangeListener((buttonView, isChecked) -> {
+            isSwitchOn = isChecked;
             if (isChecked) { // ON
-                OneTimeWorkRequest scanRequest = new OneTimeWorkRequest.Builder(ScanWorker.class).build();
-                WorkManager.getInstance(this).enqueue(scanRequest);
+                startForegroundService(bleScanServiceIntent); // フォアグラウンドサービス
             } else { // OFF
-                WorkManager.getInstance(this).cancelAllWork();
+                stopService(bleScanServiceIntent);
             }
         });
 
         enableBluetooth(); // Bluetooth の有効化
         checkAndRequestPermissions(); // パーミッションの確認
+    }
+
+    /* -------------------------------------------------- */
+    @Override
+    public void onDestroy() {
+        super.onDestroy();
+        if (isSwitchOn) {
+            stopService(bleScanServiceIntent);
+        }
     }
 }
