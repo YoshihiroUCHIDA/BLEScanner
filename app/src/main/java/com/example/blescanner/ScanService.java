@@ -21,6 +21,8 @@ import android.util.Log;
 import androidx.annotation.Nullable;
 import androidx.core.app.NotificationCompat;
 
+import org.apache.commons.codec.digest.DigestUtils;
+
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
@@ -29,26 +31,33 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Timer;
 import java.util.TimerTask;
+import java.util.UUID;
 
 public class ScanService extends Service {
+    private int count = 0;
+    private static final String randomUUID = UUID.randomUUID().toString(); // ユニークな識別番号
     private Timer timer;
     private TimerTask timerTask;
     private BluetoothLeScanner bluetoothLeScanner;
     private LocalDate currentDate;
     private File file;
     private FileOutputStream fileOutputStream;
+    private final FileUploader fileUploader = new FileUploader();
+
     private final ScanCallback scanCallback = new ScanCallback() {
         @Override
         public void onScanResult(int callbackType, ScanResult result) {
             super.onScanResult(callbackType, result);
+
             // スキャン中の処理
             ScanRecord scanRecord = result.getScanRecord(); // スキャンデータ
             if (scanRecord != null) {
                 int rssi = result.getRssi(); // RSSI
-                // RSSI が -100 以上の場合
-                if (-100 <= rssi) {
+                // RSSI が閾値以上の場合
+                if (-95 <= rssi) {
                     long timestamp = System.currentTimeMillis(); // 時刻
                     String address = result.getDevice().getAddress(); // MAC アドレス
+                    address = hashAddress(address); // ハッシュ値を求める
                     String record = bytesToHexString(scanRecord.getBytes()); // スキャンレコードの生バイト
                     String scanLog = timestamp + "," + address + "," + rssi + "," + record; // ログ
                     saveFile(scanLog);  // ファイルへ保存
@@ -78,7 +87,7 @@ public class ScanService extends Service {
         Notification notification = new NotificationCompat.Builder(this, channelId)
                 .setContentTitle("BLE Scan Service")
                 .setContentText("Scanning for BLE devices...")
-                .setSmallIcon(R.drawable.ic_launcher_foreground)
+                .setSmallIcon(R.drawable.ic_launcher_background)
                 .build();
 
         startForeground(1, notification); // フォアグラウンド処理の開始
@@ -91,7 +100,7 @@ public class ScanService extends Service {
                 startScan();
             }
         };
-        timer.scheduleAtFixedRate(timerTask, 0, 30 * 1000); // 30秒毎に実行
+        timer.scheduleAtFixedRate(timerTask, 0, 30 * 1000); // 30 秒毎に実行
     }
 
     /* -------------------------------------------------- */
@@ -105,6 +114,9 @@ public class ScanService extends Service {
     public void onDestroy() {
         super.onDestroy();
         stopScan();
+        new Thread(() -> {
+            fileUploader.uploadFile(getApplicationContext(), file); // Google Cloud Storage へアップロード
+        }).start();
         timer.cancel();
         timerTask.cancel();
     }
@@ -126,6 +138,11 @@ public class ScanService extends Service {
     }
 
     /* -------------------------------------------------- */
+    private String hashAddress(String address) {
+        return DigestUtils.sha256Hex(address);
+    }
+
+    /* -------------------------------------------------- */
     // スキャンデータの保存
     private void saveFile(String scanLog) {
         LocalDate date = LocalDate.now(); // 現在の日付を取得
@@ -138,9 +155,11 @@ public class ScanService extends Service {
                 } catch (IOException e) {
                     e.printStackTrace();
                 }
+                fileUploader.uploadFile(getApplicationContext(), file); // Google Cloud Storage へアップロード
             }
+
             currentDate = date;
-            String fileName = "BLE_Log_" + date.getYear() + "_" + date.getMonthValue() + "_" + date.getDayOfMonth() + ".csv";
+            String fileName = "BLE_Log_" + randomUUID + "_" + date.getYear() + "_" + date.getMonthValue() + "_" + date.getDayOfMonth() + ".csv";
 
             // 新しいファイルを作成
             File path = getApplicationContext().getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS);
@@ -166,6 +185,7 @@ public class ScanService extends Service {
 
         try {
             bluetoothLeScanner.startScan(filters, settings, scanCallback); // BLE スキャンを開始
+            count++;
             Log.d("ScanService", "Start Scan OK");
         } catch (SecurityException e) {
             e.printStackTrace();
@@ -178,6 +198,12 @@ public class ScanService extends Service {
             try {
                 bluetoothLeScanner.stopScan(scanCallback);
                 Log.d("ScanService", "Stop Scan OK");
+
+                // 30 分以上が経過後
+                if (60 <= count) {
+                    fileUploader.uploadFile(getApplicationContext(), file); // Google Cloud Storage へアップロード
+                    count = 0; // カウントをリセット
+                }
             } catch (SecurityException e) {
                 e.printStackTrace();
             }

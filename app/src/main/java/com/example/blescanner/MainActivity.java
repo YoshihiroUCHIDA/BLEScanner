@@ -13,8 +13,10 @@ import android.bluetooth.BluetoothManager;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.net.wifi.WifiManager;
 import android.os.Build;
 import android.os.Bundle;
+import android.provider.Settings;
 import android.view.WindowManager;
 import android.widget.Toast;
 
@@ -26,6 +28,7 @@ public class MainActivity extends AppCompatActivity {
     private Intent bleScanServiceIntent;
     private boolean isSwitchOn = false;
 
+    /* -------------------------------------------------- */
     // パーミッションの確認
     private void checkAndRequestPermissions() {
         List<String> permissions = new ArrayList<>(); // パーミッションのリストを作成
@@ -56,7 +59,7 @@ public class MainActivity extends AppCompatActivity {
         // Bluetooth が無効の場合
         if (bluetoothAdapter == null || !bluetoothAdapter.isEnabled()) {
             // Activity Result API を使用し、Bluetooth の有効化を要求
-            ActivityResultLauncher<Intent> startForResult = registerForActivityResult(
+            ActivityResultLauncher<Intent> activityResultLauncher = registerForActivityResult(
                     new ActivityResultContracts.StartActivityForResult(),
                     result -> {
                         if (result.getResultCode() == RESULT_OK) {
@@ -64,7 +67,26 @@ public class MainActivity extends AppCompatActivity {
                         }
                     }
             );
-            startForResult.launch(new Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE));
+            activityResultLauncher.launch(new Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE));
+        }
+    }
+
+    /* -------------------------------------------------- */
+    private void enableWifi() {
+        WifiManager wifiManager = (WifiManager) getSystemService(Context.WIFI_SERVICE);
+
+        // Wi-Fi が無効の場合
+        if (!wifiManager.isWifiEnabled()) {
+            // Wi-Fi の有効化を要求
+            ActivityResultLauncher<Intent> activityResultLauncher = registerForActivityResult(
+                    new ActivityResultContracts.StartActivityForResult(),
+                    result -> {
+                        if (result.getResultCode() == RESULT_OK) {
+                            Toast.makeText(this, "Wi-Fi ON", Toast.LENGTH_SHORT).show();
+                        }
+                    }
+            );
+            activityResultLauncher.launch(new Intent(Settings.Panel.ACTION_INTERNET_CONNECTIVITY));
         }
     }
 
@@ -88,6 +110,7 @@ public class MainActivity extends AppCompatActivity {
             }
         });
 
+        enableWifi(); // Wi-Fi の有効化
         enableBluetooth(); // Bluetooth の有効化
         checkAndRequestPermissions(); // パーミッションの確認
     }
