@@ -55,13 +55,15 @@ public class ScanService extends Service {
             // スキャン中の処理
             ScanRecord scanRecord = result.getScanRecord(); // スキャンデータ
             if (scanRecord != null) {
-                long timestamp = System.currentTimeMillis(); // 時刻
-                String address = result.getDevice().getAddress(); // MAC アドレス
-                address = hashAddress(address); // ハッシュ値を求める
-                int rssi = result.getRssi(); // RSSI
-                String record = bytesToHexString(scanRecord.getBytes()); // スキャンレコードの生バイト
-                String scanLog = timestamp + "," + address + "," + rssi + "," + record; // ログ
-                saveFile(scanLog);  // ファイルへ保存
+                if (-98 <= result.getRssi()) {
+                    long timestamp = System.currentTimeMillis(); // 時刻
+                    String address = result.getDevice().getAddress(); // MAC アドレス
+                    address = hashAddress(address); // ハッシュ値を求める
+                    int rssi = result.getRssi(); // RSSI
+                    String record = bytesToHexString(scanRecord.getBytes()); // スキャンレコードの生バイト
+                    String scanLog = timestamp + "," + address + "," + rssi + "," + record; // ログ
+                    saveFile(scanLog);  // ファイルへ保存
+                }
             }
         }
     };
