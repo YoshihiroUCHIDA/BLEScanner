@@ -29,49 +29,87 @@ import java.io.IOException;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
 import java.util.Timer;
 import java.util.TimerTask;
 import java.util.UUID;
 
 public class ScanService extends Service {
     private int timeCounter = 0;
-    private int fileNumber = 1;
-    private static final String randomUUID = UUID.randomUUID().toString(); // ユニークな識別番号
+    private int fileNum = 0;
+    private static final String randomUUID = UUID.randomUUID().toString(); // ユニーク識別番号
     private Timer timer;
-    private TimerTask timerTask;
+    private BluetoothAdapter bluetoothAdapter;
     private BluetoothLeScanner bluetoothLeScanner;
-    private LocalDate date;
     private File file;
-    private File previousFile;
-    private FileOutputStream fileOutputStream;
+    private File prevFile;
     private final FileUploader fileUploader = new FileUploader();
-
+    private LocalDate currentDate = null;
+    private static final char[] HEX_ARRAY = "0123456789abcdef".toCharArray();
+    private File filesDir;
+    private final StringBuilder buffer = new StringBuilder(); // ログデータを保持するためのバッファ
     private final ScanCallback scanCallback = new ScanCallback() {
         @Override
         public void onScanResult(int callbackType, ScanResult result) {
             super.onScanResult(callbackType, result);
-
-            // スキャン中の処理
-            ScanRecord scanRecord = result.getScanRecord(); // スキャンデータ
+            // スキャンレコードの取得
+            ScanRecord scanRecord = result.getScanRecord();
             if (scanRecord != null) {
-                if (-98 <= result.getRssi()) {
-                    long timestamp = System.currentTimeMillis(); // 時刻
-                    String address = result.getDevice().getAddress(); // MAC アドレス
-                    address = hashAddress(address); // ハッシュ値を求める
-                    int rssi = result.getRssi(); // RSSI
-                    String record = bytesToHexString(scanRecord.getBytes()); // スキャンレコードの生バイト
-                    String scanLog = timestamp + "," + address + "," + rssi + "," + record; // ログ
-                    saveFile(scanLog);  // ファイルへ保存
+                // RSSI値
+                int rssi = result.getRssi();
+                if (-98 <= rssi) {
+                    // 現在の日付
+                    LocalDate date = LocalDate.now();
+                    // 初回の場合 or 日付が変わった場合
+                    if (currentDate == null || !currentDate.isEqual(date)) {
+                        // バッファにデータがある場合
+                        if (0 < buffer.length()) {
+                            // バッファのデータをファイルに保存
+                            saveFile(buffer.toString());
+                            buffer.setLength(0);
+                        }
+                        // 日付が変わった場合
+                        if (currentDate != null && !currentDate.isEqual(date)) {
+                            // ファイルをアップロード
+                            prevFile = file;
+                            new Thread(() -> {
+                                fileUploader.uploadFile(getApplicationContext(), prevFile);
+                            }).start();
+                            // ファイル番号をリセット
+                            fileNum = 0;
+                        }
+                        // 現在の日付を更新
+                        currentDate = date;
+                        // 新しいファイルを作成
+                        file = createCsvFile();
+                    }
+                    // バッファが一定の文字数を超えた場合
+                    if (1024 <= buffer.length()) {
+                        // バッファのデータをファイルに保存
+                        saveFile(buffer.toString());
+                        buffer.setLength(0);
+                    }
+                    // 現在の時刻（ミリ秒）
+                    long timestamp = System.currentTimeMillis();
+                    // アドレスのハッシュ値
+                    String address = DigestUtils.sha256Hex(result.getDevice().getAddress());
+                    // スキャンレコードの生バイト（16進数文字列）
+                    String record = bytesToHexString(scanRecord.getBytes());
+                    // ログデータをバッファに追加
+                    buffer.append(timestamp).append(",").append(address).append(",").append(rssi).append(",").append(record).append("\n");
                 }
             }
         }
     };
 
-    /* -------------------------------------------------- */
+    /* ------------------------------------------------------------ */
     @Override
     public void onCreate() {
         super.onCreate();
+        // ログファイルのフォルダ
+        filesDir = getApplicationContext().getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS);
+
+        BluetoothManager bluetoothManager = (BluetoothManager) getApplicationContext().getSystemService(Context.BLUETOOTH_SERVICE);
+        bluetoothAdapter = bluetoothManager.getAdapter();
 
         // 通知チャネルの作成と管理
         NotificationManager notificationManager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
@@ -84,115 +122,92 @@ public class ScanService extends Service {
             notificationChannel.setDescription(description);
             notificationManager.createNotificationChannel(notificationChannel);
         }
-
         // 通知の作成
         Notification notification = new NotificationCompat.Builder(this, channelId)
                 .setContentTitle("BLE Scan Service")
                 .setContentText("Scanning for BLE devices...")
                 .setSmallIcon(R.drawable.ic_launcher_background)
                 .build();
-
-        startForeground(1, notification); // フォアグラウンド処理を開始
+        // フォアグラウンド処理の開始
+        startForeground(1, notification);
 
         timer = new Timer();
-        timerTask = new TimerTask() {
+        timer.scheduleAtFixedRate(new TimerTask() {
             @Override
             public void run() {
                 stopScan();
                 startScan();
             }
-        };
-        timer.scheduleAtFixedRate(timerTask, 0, 30 * 1000); // 30 秒毎に実行
+        }, 0, 30 * 1000); // 30秒間ループ実行
     }
 
-    /* -------------------------------------------------- */
+    /* ------------------------------------------------------------ */
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         return START_STICKY;
     }
 
-    /* -------------------------------------------------- */
+    /* ------------------------------------------------------------ */
     @Override
     public void onDestroy() {
         super.onDestroy();
+
         stopScan();
+        // ファイルをアップロード
         new Thread(() -> {
-            fileUploader.uploadFile(getApplicationContext(), file); // Google Cloud Storage へアップロード
+            fileUploader.uploadFile(getApplicationContext(), file);
         }).start();
         timer.cancel();
-        timerTask.cancel();
     }
 
-    /* -------------------------------------------------- */
+    /* ------------------------------------------------------------ */
     @Nullable
     @Override
     public IBinder onBind(Intent intent) {
         return null;
     }
 
-    /* -------------------------------------------------- */
+    /* ------------------------------------------------------------ */
     private String bytesToHexString(byte[] bytes) {
-        StringBuilder sb = new StringBuilder();
-        for (byte b : bytes) {
-            sb.append(String.format("%02x", (b & 0xff))); // 型変換（バイト列 → 16進数の文字列型）
+        char[] hexChars = new char[bytes.length * 2];
+        for (int j = 0; j < bytes.length; j++) {
+            int v = bytes[j] & 0xff;
+            hexChars[j * 2] = HEX_ARRAY[v >>> 4];
+            hexChars[j * 2 + 1] = HEX_ARRAY[v & 0x0f];
         }
-        return sb.toString();
+        return new String(hexChars);
     }
 
-    /* -------------------------------------------------- */
-    private String hashAddress(String address) {
-        return DigestUtils.sha256Hex(address); // ハッシュ値へ変換
-    }
-
-    /* -------------------------------------------------- */
+    /* ------------------------------------------------------------ */
     private File createCsvFile() {
-        String fileName = String.format(Locale.US, "BLE_Log_%s_%d_%d_%d_%d.csv", randomUUID, date.getYear(), date.getMonthValue(), date.getDayOfMonth(), fileNumber);
-        File path = getApplicationContext().getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS);
-        return new File(path, fileName);
+        String fileName = "BLE_Log_" +
+                randomUUID +
+                "_" +
+                currentDate.getYear() +
+                "_" +
+                currentDate.getMonthValue() +
+                "_" +
+                currentDate.getDayOfMonth() +
+                "_" +
+                fileNum +
+                ".csv";
+        return new File(filesDir, fileName);
     }
 
-    /* -------------------------------------------------- */
-    // スキャンデータの保存
+    /* ------------------------------------------------------------ */
     private void saveFile(String scanLog) {
-        LocalDate currentDate = LocalDate.now(); // 現在の日付を取得
-
-        // 初回スキャン時 or 日付が変わった場合
-        if (date == null || !date.equals(currentDate)) {
-            // 初回スキャン時以降の場合
-            if (fileOutputStream != null) {
-                try {
-                    fileOutputStream.close();
-                } catch (IOException e) {
-                    e.printStackTrace();
-                }
-                previousFile = file;
-                new Thread(() -> {
-                    fileUploader.uploadFile(getApplicationContext(), previousFile); // Google Cloud Storage へアップロード
-                }).start();
-
-                fileNumber = 1; // ファイル番号のリセット
-            }
-            date = currentDate; // 現在の日付を保存
-            file = createCsvFile(); // 新しいファイルを作成
-        }
-        // ファイルへ書き込む
-        try {
-            fileOutputStream = new FileOutputStream(file, true);
-            fileOutputStream.write((scanLog + "\n").getBytes()); // 引数の文字列を、改行コードと共に書き込む
-            fileOutputStream.close();
+        try (FileOutputStream fileOutputStream = new FileOutputStream(file, true)) {
+            fileOutputStream.write(scanLog.getBytes());
         } catch (IOException e) {
             e.printStackTrace();
         }
     }
 
-    /* -------------------------------------------------- */
+    /* ------------------------------------------------------------ */
     private void startScan() {
-        BluetoothManager bluetoothManager = (BluetoothManager) getApplicationContext().getSystemService(Context.BLUETOOTH_SERVICE);
-        BluetoothAdapter bluetoothAdapter = bluetoothManager.getAdapter();
         bluetoothLeScanner = bluetoothAdapter.getBluetoothLeScanner();
         ScanSettings settings = new ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY).build();
         List<ScanFilter> filters = new ArrayList<>();
-
         try {
             bluetoothLeScanner.startScan(filters, settings, scanCallback);
             Log.d("ScanService", "Start Scan OK");
@@ -202,27 +217,32 @@ public class ScanService extends Service {
         }
     }
 
-    /* -------------------------------------------------- */
+    /* ------------------------------------------------------------ */
     private void stopScan() {
-        if (bluetoothLeScanner != null) {
-            try {
-                bluetoothLeScanner.stopScan(scanCallback);
-                Log.d("ScanService", "Stop Scan OK");
-
-                // 30 分以上が経過した場合
-                if (60 <= timeCounter) {
-                    previousFile = file;
-                    new Thread(() -> {
-                        fileUploader.uploadFile(getApplicationContext(), previousFile); // Google Cloud Storage へアップロード
-                    }).start();
-
-                    fileNumber++;
-                    file = createCsvFile(); // 新しいファイルを作成
-                    timeCounter = 0; // カウントをリセット
-                }
-            } catch (SecurityException e) {
-                e.printStackTrace();
+        if (bluetoothLeScanner == null) {
+            return;
+        }
+        try {
+            bluetoothLeScanner.stopScan(scanCallback);
+            Log.d("ScanService", "Stop Scan OK");
+            // バッファにデータがある場合
+            if (0 < buffer.length()) {
+                saveFile(buffer.toString());
+                buffer.setLength(0);
             }
+            // 一定時間が経過した場合
+            if (60 <= timeCounter) {
+                prevFile = file;
+                // 前のファイルをアップロード
+                new Thread(() -> {
+                    fileUploader.uploadFile(getApplicationContext(), prevFile);
+                }).start();
+                fileNum++;
+                file = createCsvFile();
+                timeCounter = 0;
+            }
+        } catch (SecurityException e) {
+            e.printStackTrace();
         }
     }
 }
