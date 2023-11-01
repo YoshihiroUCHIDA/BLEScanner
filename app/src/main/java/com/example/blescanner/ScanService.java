@@ -21,8 +21,6 @@ import android.util.Log;
 import androidx.annotation.Nullable;
 import androidx.core.app.NotificationCompat;
 
-import org.apache.commons.codec.digest.DigestUtils;
-
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
@@ -32,6 +30,7 @@ import java.util.List;
 import java.util.Timer;
 import java.util.TimerTask;
 import java.util.UUID;
+import java.security.MessageDigest;
 
 public class ScanService extends Service {
     private int timeCounter = 0;
@@ -46,6 +45,7 @@ public class ScanService extends Service {
     private LocalDate currentDate = null;
     private static final char[] HEX_ARRAY = "0123456789abcdef".toCharArray();
     private File filesDir;
+    private MessageDigest md;
     private final StringBuilder buffer = new StringBuilder(); // ログデータを保持するためのバッファ
     private final ScanCallback scanCallback = new ScanCallback() {
         @Override
@@ -91,7 +91,7 @@ public class ScanService extends Service {
                     // 現在の時刻（ミリ秒）
                     long timestamp = System.currentTimeMillis();
                     // アドレスのハッシュ値
-                    String address = DigestUtils.sha256Hex(result.getDevice().getAddress());
+                    String address = hashAddress(result.getDevice().getAddress());
                     // スキャンレコードの生バイト（16進数文字列）
                     String record = bytesToHexString(scanRecord.getBytes());
                     // ログデータをバッファに追加
@@ -108,8 +108,16 @@ public class ScanService extends Service {
         // ログファイルのフォルダ
         filesDir = getApplicationContext().getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS);
 
+        // Bluetooth 関連のインスタンス
         BluetoothManager bluetoothManager = (BluetoothManager) getApplicationContext().getSystemService(Context.BLUETOOTH_SERVICE);
         bluetoothAdapter = bluetoothManager.getAdapter();
+
+        // ハッシュ処理（SHA-256）関連のインスタンス
+        try {
+            md = MessageDigest.getInstance("SHA-256");
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
 
         // 通知チャネルの作成と管理
         NotificationManager notificationManager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
@@ -158,6 +166,7 @@ public class ScanService extends Service {
             fileUploader.uploadFile(getApplicationContext(), file);
         }).start();
         timer.cancel();
+        Log.d("ScanService", "Scan Finish");
     }
 
     /* ------------------------------------------------------------ */
@@ -176,6 +185,19 @@ public class ScanService extends Service {
             hexChars[j * 2 + 1] = HEX_ARRAY[v & 0x0f];
         }
         return new String(hexChars);
+    }
+
+    /* ------------------------------------------------------------ */
+    private String hashAddress(String address) {
+        String output = "";
+        try {
+            md.update(address.getBytes());
+            byte[] digest = md.digest();
+            output = bytesToHexString(digest);
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        return output;
     }
 
     /* ------------------------------------------------------------ */

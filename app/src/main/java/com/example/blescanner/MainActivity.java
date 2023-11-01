@@ -29,33 +29,30 @@ public class MainActivity extends AppCompatActivity {
     private boolean isSwitchOn = false;
 
     /* -------------------------------------------------- */
-    // パーミッションの確認
     private void checkAndRequestPermissions() {
-        List<String> permissions = new ArrayList<>(); // パーミッションのリストを作成
-        // API レベルが 31 以上の場合
+        List<String> permissions = new ArrayList<>(); // Permission のリストを作成
+        // APIレベルが31以上の場合
         if (Build.VERSION_CODES.S <= Build.VERSION.SDK_INT) {
             permissions.add(Manifest.permission.BLUETOOTH_CONNECT);
             permissions.add(Manifest.permission.BLUETOOTH_SCAN);
         }
         permissions.add(Manifest.permission.ACCESS_FINE_LOCATION);
 
-        // パーミッションのリストから、許可されていないものを抽出
+        // Permission のリストから、未許可のものを抽出
         List<String> permissionsToRequest = permissions.stream()
                 .filter(permission -> ContextCompat.checkSelfPermission(this, permission) != PackageManager.PERMISSION_GRANTED)
                 .collect(Collectors.toList());
 
-        // 許可されていないパーミッションがある場合、リクエストを送信
+        // 未許可の Permission がある場合、リクエストを送信
         if (!permissionsToRequest.isEmpty()) {
             ActivityCompat.requestPermissions(this, permissionsToRequest.toArray(new String[0]), 1);
         }
     }
 
     /* -------------------------------------------------- */
-    // Bluetooth の有効化
     private void enableBluetooth() {
         BluetoothManager bluetoothManager = (BluetoothManager) getSystemService(Context.BLUETOOTH_SERVICE);
         BluetoothAdapter bluetoothAdapter = bluetoothManager.getAdapter();
-
         // Bluetooth が無効の場合
         if (bluetoothAdapter == null || !bluetoothAdapter.isEnabled()) {
             // Activity Result API を使用し、Bluetooth の有効化を要求
@@ -74,7 +71,6 @@ public class MainActivity extends AppCompatActivity {
     /* -------------------------------------------------- */
     private void enableWifi() {
         WifiManager wifiManager = (WifiManager) getSystemService(Context.WIFI_SERVICE);
-
         // Wi-Fi が無効の場合
         if (!wifiManager.isWifiEnabled()) {
             // Wi-Fi の有効化を要求
@@ -112,7 +108,7 @@ public class MainActivity extends AppCompatActivity {
 
         enableWifi(); // Wi-Fi の有効化
         enableBluetooth(); // Bluetooth の有効化
-        checkAndRequestPermissions(); // パーミッションの確認
+        checkAndRequestPermissions(); // Permission の確認
     }
 
     /* -------------------------------------------------- */
