@@ -45,7 +45,7 @@ public class ScanService extends Service {
     private LocalDate currentDate = null;
     private static final char[] HEX_ARRAY = "0123456789abcdef".toCharArray();
     private File filesDir;
-    private MessageDigest md;
+    private MessageDigest messageDigest;
     private final StringBuilder buffer = new StringBuilder(); // ログデータを保持するためのバッファ
     private final ScanCallback scanCallback = new ScanCallback() {
         @Override
@@ -112,7 +112,7 @@ public class ScanService extends Service {
 
         // ハッシュ処理（SHA-256）関連のインスタンス
         try {
-            md = MessageDigest.getInstance("SHA-256");
+            messageDigest = MessageDigest.getInstance("SHA-256");
         } catch (Exception e) {
             e.printStackTrace();
         }
@@ -187,8 +187,8 @@ public class ScanService extends Service {
     private String hashAddress(String address) {
         String output = "";
         try {
-            md.update(address.getBytes());
-            byte[] digest = md.digest();
+            messageDigest.update(address.getBytes());
+            byte[] digest = messageDigest.digest();
             output = bytesToHexString(digest);
         } catch (Exception e) {
             e.printStackTrace();
@@ -249,7 +249,7 @@ public class ScanService extends Service {
                 buffer.setLength(0);
             }
             // 一定時間が経過した場合
-            if (60 <= timeCounter) {
+            if (30 <= timeCounter) {
                 prevFile = file;
                 // 前のファイルをアップロード
                 new Thread(() -> fileUploader.uploadFile(getApplicationContext(), prevFile)).start();
