@@ -71,9 +71,7 @@ public class ScanService extends Service {
                         if (currentDate != null && !currentDate.isEqual(date)) {
                             // ファイルをアップロード
                             prevFile = file;
-                            new Thread(() -> {
-                                fileUploader.uploadFile(getApplicationContext(), prevFile);
-                            }).start();
+                            new Thread(() -> fileUploader.uploadFile(getApplicationContext(), prevFile)).start();
                             // ファイル番号をリセット
                             fileNum = 0;
                         }
@@ -83,7 +81,7 @@ public class ScanService extends Service {
                         file = createCsvFile();
                     }
                     // バッファが一定の文字数を超えた場合
-                    if (1024 <= buffer.length()) {
+                    if (2048 <= buffer.length()) {
                         // バッファのデータをファイルに保存
                         saveFile(buffer.toString());
                         buffer.setLength(0);
@@ -162,9 +160,7 @@ public class ScanService extends Service {
 
         stopScan();
         // ファイルをアップロード
-        new Thread(() -> {
-            fileUploader.uploadFile(getApplicationContext(), file);
-        }).start();
+        new Thread(() -> fileUploader.uploadFile(getApplicationContext(), file)).start();
         timer.cancel();
         Log.d("ScanService", "Scan Finish");
     }
@@ -256,9 +252,7 @@ public class ScanService extends Service {
             if (60 <= timeCounter) {
                 prevFile = file;
                 // 前のファイルをアップロード
-                new Thread(() -> {
-                    fileUploader.uploadFile(getApplicationContext(), prevFile);
-                }).start();
+                new Thread(() -> fileUploader.uploadFile(getApplicationContext(), prevFile)).start();
                 fileNum++;
                 file = createCsvFile();
                 timeCounter = 0;
