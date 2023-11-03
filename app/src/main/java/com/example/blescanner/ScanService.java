@@ -27,24 +27,27 @@ import java.io.IOException;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Timer;
-import java.util.TimerTask;
 import java.util.UUID;
 import java.security.MessageDigest;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
 public class ScanService extends Service {
     private int timeCounter = 0;
     private int fileNum = 0;
     private static final String randomUUID = UUID.randomUUID().toString(); // ユニーク識別番号
-    private Timer timer;
+    private ScheduledExecutorService scheduledExecutorService;
+    private ExecutorService executorService;
     private BluetoothAdapter bluetoothAdapter;
     private BluetoothLeScanner bluetoothLeScanner;
     private File file;
     private File prevFile;
+    private File filesDir;
     private final FileUploader fileUploader = new FileUploader();
     private LocalDate currentDate = null;
     private static final char[] HEX_ARRAY = "0123456789abcdef".toCharArray();
-    private File filesDir;
     private MessageDigest messageDigest;
     private final StringBuilder buffer = new StringBuilder(); // ログデータを保持するためのバッファ
     private final ScanCallback scanCallback = new ScanCallback() {
@@ -53,48 +56,47 @@ public class ScanService extends Service {
             super.onScanResult(callbackType, result);
             // スキャンレコードの取得
             ScanRecord scanRecord = result.getScanRecord();
-            if (scanRecord != null) {
-                // RSSI値
-                int rssi = result.getRssi();
-                if (-98 <= rssi) {
-                    // 現在の日付
-                    LocalDate date = LocalDate.now();
-                    // 初回の場合 or 日付が変わった場合
-                    if (currentDate == null || !currentDate.isEqual(date)) {
-                        // バッファにデータがある場合
-                        if (0 < buffer.length()) {
-                            // バッファのデータをファイルに保存
-                            saveFile(buffer.toString());
-                            buffer.setLength(0);
-                        }
-                        // 日付が変わった場合
-                        if (currentDate != null && !currentDate.isEqual(date)) {
-                            // ファイルをアップロード
-                            prevFile = file;
-                            new Thread(() -> fileUploader.uploadFile(getApplicationContext(), prevFile)).start();
-                            // ファイル番号をリセット
-                            fileNum = 0;
-                        }
-                        // 現在の日付を更新
-                        currentDate = date;
-                        // 新しいファイルを作成
-                        file = createCsvFile();
-                    }
-                    // バッファが一定の文字数を超えた場合
-                    if (2048 <= buffer.length()) {
-                        // バッファのデータをファイルに保存
+            if (scanRecord == null) {
+                return;
+            }
+            // RSSI値
+            int rssi = result.getRssi();
+            if (-98 <= rssi) {
+                // 現在の日付
+                LocalDate date = LocalDate.now();
+                // 初回の場合 or 日付が変わった場合
+                if (currentDate == null || !currentDate.isEqual(date)) {
+                    // バッファにデータがある場合
+                    if (0 < buffer.length()) {
                         saveFile(buffer.toString());
                         buffer.setLength(0);
                     }
-                    // 現在の時刻（ミリ秒）
-                    long timestamp = System.currentTimeMillis();
-                    // アドレスのハッシュ値
-                    String address = hashAddress(result.getDevice().getAddress());
-                    // スキャンレコードの生バイト（16進数文字列）
-                    String record = bytesToHexString(scanRecord.getBytes());
-                    // ログデータをバッファに追加
-                    buffer.append(timestamp).append(",").append(address).append(",").append(rssi).append(",").append(record).append("\n");
+                    // 日付が変わった場合
+                    if (currentDate != null && !currentDate.isEqual(date)) {
+                        // ファイルをアップロード
+                        prevFile = file;
+                        executorService.submit(() -> fileUploader.uploadFile(getApplicationContext(), prevFile));
+                        // ファイル番号をリセット
+                        fileNum = 0;
+                    }
+                    // 現在の日付を更新
+                    currentDate = date;
+                    // 新しいファイルを作成
+                    file = createCsvFile();
                 }
+                // バッファが一定の文字数を超えた場合
+                if (1024 <= buffer.length()) {
+                    saveFile(buffer.toString());
+                    buffer.setLength(0);
+                }
+                // 現在の時刻（ミリ秒）
+                long timestamp = System.currentTimeMillis();
+                // アドレスのハッシュ値
+                String address = hashAddress(result.getDevice().getAddress());
+                // スキャンレコードの生バイト（16進数文字列）
+                String record = bytesToHexString(scanRecord.getBytes());
+                // ログデータをバッファに追加
+                buffer.append(timestamp).append(",").append(address).append(",").append(rssi).append(",").append(record).append("\n");
             }
         }
     };
@@ -106,17 +108,24 @@ public class ScanService extends Service {
         // ログファイルのフォルダ
         filesDir = getApplicationContext().getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS);
 
-        // Bluetooth 関連のインスタンス
+        // Bluetooth 管理を行うインスタンス
         BluetoothManager bluetoothManager = (BluetoothManager) getApplicationContext().getSystemService(Context.BLUETOOTH_SERVICE);
         bluetoothAdapter = bluetoothManager.getAdapter();
 
-        // ハッシュ処理（SHA-256）関連のインスタンス
+        // ハッシュ処理（SHA-256）を行うインスタンス
         try {
             messageDigest = MessageDigest.getInstance("SHA-256");
         } catch (Exception e) {
             e.printStackTrace();
         }
 
+        // 非同期処理のインスタンス
+        executorService = Executors.newSingleThreadExecutor();
+    }
+
+    /* ------------------------------------------------------------ */
+    @Override
+    public int onStartCommand(Intent intent, int flags, int startId) {
         // 通知チャネルの作成と管理
         NotificationManager notificationManager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
         String name = "BLE Scanner";
@@ -134,22 +143,17 @@ public class ScanService extends Service {
                 .setContentText("Scanning for BLE devices...")
                 .setSmallIcon(R.drawable.ic_launcher_background)
                 .build();
+
         // フォアグラウンド処理の開始
         startForeground(1, notification);
 
-        timer = new Timer();
-        timer.scheduleAtFixedRate(new TimerTask() {
-            @Override
-            public void run() {
-                stopScan();
-                startScan();
-            }
-        }, 0, 30 * 1000); // 30秒間ループ実行
-    }
+        // 定期実行（30秒）
+        scheduledExecutorService = Executors.newSingleThreadScheduledExecutor();
+        scheduledExecutorService.scheduleAtFixedRate(() -> {
+            stopScan();
+            startScan();
+        }, 0, 30, TimeUnit.SECONDS);
 
-    /* ------------------------------------------------------------ */
-    @Override
-    public int onStartCommand(Intent intent, int flags, int startId) {
         return START_STICKY;
     }
 
@@ -157,12 +161,15 @@ public class ScanService extends Service {
     @Override
     public void onDestroy() {
         super.onDestroy();
-
+        scheduledExecutorService.shutdown();
         stopScan();
+
         // ファイルをアップロード
-        new Thread(() -> fileUploader.uploadFile(getApplicationContext(), file)).start();
-        timer.cancel();
-        Log.d("ScanService", "Scan Finish");
+        executorService.submit(() -> fileUploader.uploadFile(getApplicationContext(), file));
+        executorService.shutdown();
+
+        Log.d("ScanService", "Scan Finished");
+        stopSelf();
     }
 
     /* ------------------------------------------------------------ */
@@ -243,6 +250,7 @@ public class ScanService extends Service {
         try {
             bluetoothLeScanner.stopScan(scanCallback);
             Log.d("ScanService", "Stop Scan OK");
+
             // バッファにデータがある場合
             if (0 < buffer.length()) {
                 saveFile(buffer.toString());
@@ -252,7 +260,7 @@ public class ScanService extends Service {
             if (30 <= timeCounter) {
                 prevFile = file;
                 // 前のファイルをアップロード
-                new Thread(() -> fileUploader.uploadFile(getApplicationContext(), prevFile)).start();
+                executorService.submit(() -> fileUploader.uploadFile(getApplicationContext(), prevFile));
                 fileNum++;
                 file = createCsvFile();
                 timeCounter = 0;
