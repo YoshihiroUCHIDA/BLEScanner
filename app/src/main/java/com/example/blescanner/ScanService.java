@@ -42,6 +42,8 @@ public class ScanService extends Service {
     private ExecutorService executorService;
     private BluetoothAdapter bluetoothAdapter;
     private BluetoothLeScanner bluetoothLeScanner;
+    private ScanSettings settings;
+    private List<ScanFilter> filters;
     private File file;
     private File prevFile;
     private File filesDir;
@@ -49,7 +51,7 @@ public class ScanService extends Service {
     private LocalDate currentDate = null;
     private static final char[] HEX_ARRAY = "0123456789abcdef".toCharArray();
     private MessageDigest messageDigest;
-    private final StringBuilder buffer = new StringBuilder(); // ログデータを保持するためのバッファ
+    private final StringBuilder buffer = new StringBuilder(); // ログデータ保持用のバッファ
     private final ScanCallback scanCallback = new ScanCallback() {
         @Override
         public void onScanResult(int callbackType, ScanResult result) {
@@ -66,14 +68,14 @@ public class ScanService extends Service {
                 LocalDate date = LocalDate.now();
                 // 初回の場合 or 日付が変わった場合
                 if (currentDate == null || !currentDate.isEqual(date)) {
-                    // バッファにデータがある場合
+                    // バッファデータの処理
                     if (0 < buffer.length()) {
                         saveFile(buffer.toString());
                         buffer.setLength(0);
                     }
                     // 日付が変わった場合
                     if (currentDate != null && !currentDate.isEqual(date)) {
-                        // ファイルをアップロード
+                        // 前のファイルをアップロード
                         prevFile = file;
                         executorService.submit(() -> fileUploader.uploadFile(getApplicationContext(), prevFile));
                         // ファイル番号をリセット
@@ -94,9 +96,9 @@ public class ScanService extends Service {
                 // アドレスのハッシュ値
                 String address = hashAddress(result.getDevice().getAddress());
                 // スキャンレコードの生バイト（16進数文字列）
-                String record = bytesToHexString(scanRecord.getBytes());
+                /* String record = bytesToHexString(scanRecord.getBytes()); */
                 // ログデータをバッファに追加
-                buffer.append(timestamp).append(",").append(address).append(",").append(rssi).append(",").append(record).append("\n");
+                buffer.append(timestamp).append(",").append(address).append(",").append(rssi).append("\n");
             }
         }
     };
@@ -108,9 +110,16 @@ public class ScanService extends Service {
         // ログファイルのフォルダ
         filesDir = getApplicationContext().getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS);
 
-        // Bluetooth 管理を行うインスタンス
+        // スキャン関連のインスタンス
         BluetoothManager bluetoothManager = (BluetoothManager) getApplicationContext().getSystemService(Context.BLUETOOTH_SERVICE);
         bluetoothAdapter = bluetoothManager.getAdapter();
+        // スキャンモード
+        settings = new ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_BALANCED).build();
+        // フィルタリング
+        filters = new ArrayList<>();
+        filters.add(new ScanFilter.Builder().setManufacturerData(0x004c, new byte[]{}).build()); // Apple
+        filters.add(new ScanFilter.Builder().setManufacturerData(0x0006, new byte[]{}).build()); // Microsoft
+        filters.add(new ScanFilter.Builder().setManufacturerData(0x012d, new byte[]{}).build()); // Sony
 
         // ハッシュ処理（SHA-256）を行うインスタンス
         try {
@@ -231,8 +240,6 @@ public class ScanService extends Service {
     /* ------------------------------------------------------------ */
     private void startScan() {
         bluetoothLeScanner = bluetoothAdapter.getBluetoothLeScanner();
-        ScanSettings settings = new ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY).build();
-        List<ScanFilter> filters = new ArrayList<>();
         try {
             bluetoothLeScanner.startScan(filters, settings, scanCallback);
             Log.d("ScanService", "Start Scan OK");
@@ -251,12 +258,12 @@ public class ScanService extends Service {
             bluetoothLeScanner.stopScan(scanCallback);
             Log.d("ScanService", "Stop Scan OK");
 
-            // バッファにデータがある場合
+            // バッファデータの処理
             if (0 < buffer.length()) {
                 saveFile(buffer.toString());
                 buffer.setLength(0);
             }
-            // 一定時間が経過した場合
+            // 一定時間経過後の処理
             if (30 <= timeCounter) {
                 prevFile = file;
                 // 前のファイルをアップロード

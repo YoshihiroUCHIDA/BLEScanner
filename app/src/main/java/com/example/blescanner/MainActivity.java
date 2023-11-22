@@ -88,9 +88,9 @@ public class MainActivity extends AppCompatActivity {
     private void enableBluetooth() {
         BluetoothManager bluetoothManager = (BluetoothManager) getSystemService(Context.BLUETOOTH_SERVICE);
         BluetoothAdapter bluetoothAdapter = bluetoothManager.getAdapter();
-        // Bluetooth が無効の場合
+        // Bluetoothが無効の場合
         if (!bluetoothAdapter.isEnabled()) {
-            // Activity Result API を使用し、Bluetooth の有効化を要求
+            // Activity Result APIを使用し、Bluetoothの有効化を要求
             ActivityResultLauncher<Intent> activityResultLauncher = registerForActivityResult(
                     new ActivityResultContracts.StartActivityForResult(),
                     result -> {
@@ -106,9 +106,9 @@ public class MainActivity extends AppCompatActivity {
     /* ------------------------------------------------------------ */
     private void enableWifi() {
         WifiManager wifiManager = (WifiManager) getSystemService(Context.WIFI_SERVICE);
-        // Wi-Fi が無効の場合
+        // Wi-Fiが無効の場合
         if (!wifiManager.isWifiEnabled()) {
-            // Wi-Fi の有効化を要求
+            // Wi-Fiの有効化を要求
             ActivityResultLauncher<Intent> activityResultLauncher = registerForActivityResult(
                     new ActivityResultContracts.StartActivityForResult(),
                     result -> {
