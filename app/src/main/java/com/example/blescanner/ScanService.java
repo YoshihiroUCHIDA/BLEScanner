@@ -61,45 +61,43 @@ public class ScanService extends Service {
             if (scanRecord == null) {
                 return;
             }
-            // RSSI値
-            int rssi = result.getRssi();
-            if (-98 <= rssi) {
-                // 現在の日付
-                LocalDate date = LocalDate.now();
-                // 初回の場合 or 日付が変わった場合
-                if (currentDate == null || !currentDate.isEqual(date)) {
-                    // バッファデータの処理
-                    if (0 < buffer.length()) {
-                        saveFile(buffer.toString());
-                        buffer.setLength(0);
-                    }
-                    // 日付が変わった場合
-                    if (currentDate != null && !currentDate.isEqual(date)) {
-                        // 前のファイルをアップロード
-                        prevFile = file;
-                        executorService.submit(() -> fileUploader.uploadFile(getApplicationContext(), prevFile));
-                        // ファイル番号をリセット
-                        fileNum = 0;
-                    }
-                    // 現在の日付を更新
-                    currentDate = date;
-                    // 新しいファイルを作成
-                    file = createCsvFile();
-                }
-                // バッファが一定の文字数を超えた場合
-                if (1024 <= buffer.length()) {
+            // 現在の日付
+            LocalDate date = LocalDate.now();
+            // 初回の場合 or 日付が変わった場合
+            if (currentDate == null || !currentDate.isEqual(date)) {
+                // バッファデータの処理
+                if (0 < buffer.length()) {
                     saveFile(buffer.toString());
                     buffer.setLength(0);
                 }
-                // 現在の時刻（ミリ秒）
-                long timestamp = System.currentTimeMillis();
-                // アドレスのハッシュ値
-                String address = hashAddress(result.getDevice().getAddress());
-                // スキャンレコードの生バイト（16進数文字列）
-                /* String record = bytesToHexString(scanRecord.getBytes()); */
-                // ログデータをバッファに追加
-                buffer.append(timestamp).append(",").append(address).append(",").append(rssi).append("\n");
+                // 日付が変わった場合
+                if (currentDate != null && !currentDate.isEqual(date)) {
+                    // 前のファイルをアップロード
+                    prevFile = file;
+                    executorService.submit(() -> fileUploader.uploadFile(getApplicationContext(), prevFile));
+                    // ファイル番号をリセット
+                    fileNum = 0;
+                }
+                // 現在の日付を更新
+                currentDate = date;
+                // 新しいファイルを作成
+                file = createCsvFile();
             }
+            // バッファが一定の文字数を超えた場合
+            if (1024 <= buffer.length()) {
+                saveFile(buffer.toString());
+                buffer.setLength(0);
+            }
+            // 現在の時刻（ミリ秒）
+            long timestamp = System.currentTimeMillis();
+            // アドレスのハッシュ値
+            String address = hashAddress(result.getDevice().getAddress());
+            // RSSI値
+            int rssi = result.getRssi();
+            // スキャンレコードの生バイト（16進数文字列）
+            /* String record = bytesToHexString(scanRecord.getBytes()); */
+            // ログデータをバッファに追加
+            buffer.append(timestamp).append(",").append(address).append(",").append(rssi).append("\n");
         }
     };
 
